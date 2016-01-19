@@ -1,10 +1,10 @@
 'use strict';
 
 var mongoose = require( 'mongoose' );
-var Schema = mongoose.Schema;
+var Schema   = mongoose.Schema;
 
 var TestsModelSchema = new Schema( {
-	'machineId'       : Number,
+	'slaveName'       : String,
 	'browserStackId'  : String,
 	'browserStackURL' : String,
 	'testCaseId'      : String,

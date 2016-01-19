@@ -5,13 +5,10 @@ const mongoose         = require( 'mongoose' );
 const glob             = require( 'glob' );
 const protractorConfig = require( 'protractor-config' );
 const Test             = mongoose.models.Test;
-const Slave            = mongoose.models.Slave;
-const fs               = require('fs');
+const fs = require('fs');
 // Test Cases
 const testCases = [];
 const logFiles  = [];
-
-const master = require( process.cwd() + '/master' );
 
 glob( process.cwd() + '/testlogs/*', function ( err, files ) {
 	files.forEach( function ( file ) {
@@ -71,61 +68,33 @@ module.exports = function ( master ) {
 			'method' : 'GET',
 			'path' : '/machines',
 			'handler' : function ( request, reply ) {
-
-				// loop slave
 				return Test
 					.aggregate( [
 						{
 							$group : {
-								'_id'     : '$slaveName',
+								'_id' : '$machineId',
 								'success' : { $sum : '$success' },
-								'fail'    : { $sum : '$fail' }
+								'fail' : { $sum : '$fail' }
 							},
 						}
 					] )
 					.exec( function ( error, results ) {
+						let machines = [];
 
 						if( error ) {
 							return reply( error ).code( 500 );
 						}
 
-						// find in slaves
-						var slaves   = master.toArraySlaves();
-						let machines = [];
-						Slave
-							.find( {}, {
-								'_id' : 0,
-								'__v' : 0
-							 } )
-							.exec ( function ( slaveError, slavesResult ) {
-
-								if( slaveError ) {
-									return reply( slaveError ).code( 500 );
-								}
-
-								slavesResult.forEach( ( slave ) => {
-									var slaveClone = slave._doc;
-									slaveClone.stats = {
-										'success' : '0',
-										'fail'    : '0'
-									};
-									_.every( results, ( result, index ) => {
-										if ( slaveClone.name === result._id ) {
-											slaveClone.stats.success = result.success;
-											slaveClone.stats.fail    = result.fail;
-											// remove from list for performance
-											// but not tested throughly
-											results.splice( index, 1 );
-											return false;
-										} else {
-											return true;
-										}
-									} );
-									machines.push( slaveClone );
-								} );
-
-								return reply( machines );
+						for( let i = 0; i < results.length; i++ ) {
+							let stats = results[ i ];
+							let machine = _.findWhere( protractorConfig.multiCapabilities, {
+								'id' : stats._id
 							} );
+							machine.stats = results[ i ];
+							machines.push( machine );
+						}
+
+						return reply( machines );
 					} );
 			}
 		},
@@ -133,19 +102,7 @@ module.exports = function ( master ) {
 			'method' : 'GET',
 			'path' : '/machines/{machineId}',
 			'handler' : function ( request, reply ) {
-
-				Slave
-					.find( { 'name' : request.params.machineId }, {
-						'_id' : 0,
-						'__v' : 0
-					 } )
-					.exec ( function ( slaveError, slavesResult ) {
-						if( slaveError ) {
-							return reply( slaveError ).code( 500 );
-						}
-						return reply( slavesResult );
-					} );
-
+				return reply( _.findWhere( protractorConfig.multiCapabilities, { 'id' : parseInt( request.params.machineId ) } ) );
 			}
 		},
 		{
@@ -184,7 +141,7 @@ module.exports = function ( master ) {
 				return Test
 					.aggregate( [
 						{
-							$match : { 'slaveName' : request.params.machineId  }
+							$match : { 'machineId' : parseInt( request.params.machineId ) }
 						},
 						{
 							$group : {
@@ -208,7 +165,7 @@ module.exports = function ( master ) {
 			'handler' : function ( request, reply ) {
 				return Test
 					.find( {
-						'slaveName' : request.params.machineId,
+						'machineId' : request.params.machineId,
 						'testCaseId' : request.params.testCaseId
 					} )
 					.exec( function ( error, results ) {
@@ -236,8 +193,14 @@ module.exports = function ( master ) {
 					fail    = 1;
 				}
 
+				var machine = _.findWhere( protractorConfig.multiCapabilities, {
+					'browserName' : automationSession.browser,
+					'os'          : automationSession.os,
+					'os_version'  : automationSession.os_version
+				} );
+
 				let data = {
-					'slaveName'       : automationSession.name,
+					'machineId'       : machine.id,
 					'browserStackId'  : automationSession.hashed_id,
 					'browserStackURL' : automationSession.browser_url,
 					'session'         : automationSession.session,

@@ -5,8 +5,6 @@ const fs       = require( 'fs' );
 const Hapi     = require( 'hapi' );
 const SocketIO = require( 'socket.io' );
 const server   = new Hapi.Server();
-const Master   = require( './master' );
-const master   = new Master();
 const mongoose = require( 'mongoose' );
 const config   = require( './config' );
 
@@ -14,6 +12,10 @@ const protractorConfig = require( 'protractor-config' );
 
 mongoose.connect( config.mongodb );
 require( './models/Tests' );
+require( './models/Slaves' );
+
+// load models first before master
+const master = require( './master' );
 
 setInterval( function(){
 	console.log( 'Memory usage before clean up' );
@@ -85,6 +87,17 @@ function createWriteStream( session, machineId ) {
 	return writeStream;
 }
 
+function slaveStream( socket, data ) {
+	console.log( socket );
+	socket.writeStream.write( data.data[ 0 ] );
+	_.forEach( io.sockets.connected, ( socketEach, socketId ) => {
+		socketEach.emit( 'browserstack-data-stream', {
+			'machineId' : socket.name,
+			'data'      : data.data[ 0 ]
+		} );
+	} );
+};
+
 // FIREHOSE
 master.on( 'data', function ( data ) {
 	_.forEach( io.sockets.connected, ( socket, socketId ) => {
@@ -115,26 +128,15 @@ io.sockets.on( 'connection', ( socket ) => {
 	socket.on( 'register-browserstack', ( data ) => {
 		socket.join( 'browserstack-slave' );
 		var browserstack = data.browserstack;
-		var machine = _.findWhere( protractorConfig.multiCapabilities, {
-			'browserName' : browserstack.automation_session.browser,
-			'os'          : browserstack.automation_session.os,
-			'os_version'  : browserstack.automation_session.os_version
-		} );
-		socket.browserstackMachineId = machine.id;
-		socket.session               = browserstack.automation_session.session;
+		socket.name      = browserstack.automation_session.name
+		socket.session   = browserstack.automation_session.session;
 
 		// create write stream
 		socket.writeStream = createWriteStream( socket.session );
 	} );
 	// Check what happened here
 	socket.on( 'browserstack-stream', ( data ) => {
-		socket.writeStream.write( data.data[ 0 ] );
-		_.forEach( io.sockets.connected, ( socketEach, socketId ) => {
-			socketEach.emit( 'browserstack-data-stream', {
-				'machineId' : socket.browserstackMachineId,
-				'data'      : data.data[ 0 ]
-			} );
-		} );
+		slaveStream( socket, data );
 	} );
 
 } );

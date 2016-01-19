@@ -10,6 +10,9 @@ const testProtocol   = require( 'test-protocol' );
 const read           = testProtocol.read;
 const transformWrite = testProtocol.write;
 
+const mongoose = require( 'mongoose' );
+const Slave    = mongoose.models.Slave;
+
 function debug () {
 	console.log.apply( null, Array.prototype.slice.call( arguments ) );
 }
@@ -92,9 +95,12 @@ Master.prototype.IAM = function ( socket, meta ) {
 	let slaveMeta   = JSON.parse( meta[ 1 ] );
 	let platform    = slaveMeta.platform;
 
-	socket.id       = slaveMeta.id;
-	socket.platform = slaveMeta.platform;
-	socket.name     = slaveMeta.name;
+	socket.id             = slaveMeta.id;
+	socket.platform       = slaveMeta.platform;
+	socket.name           = slaveMeta.name;
+	socket.browser        = slaveMeta.browser;
+	socket.browserVersion = slaveMeta.browserVersion;
+	socket.osVersion      = slaveMeta.osVersion;
 
 	if( !this.slaves[ platform ] ) {
 		this.slaves[ platform ] = {};
@@ -105,11 +111,40 @@ Master.prototype.IAM = function ( socket, meta ) {
 	// For individual socket queues
 	this.slaves[ platform ][ socket.id ].queue = [];
 
+	// save slave to db
+	let slave = new Slave( {
+		'name'           : slaveMeta.name,
+		'os'             : slaveMeta.platform,
+		'osVersion'      : slaveMeta.osVersion,
+		'browser'        : slaveMeta.browser,
+		'browserVersion' : slaveMeta.browserVersion
+	} );
+
+	slave.save ( function ( error ) {
+		if ( error && error.code !== 11000 ) {
+			console.log( 'Error saving slave', error );
+		}
+	} );
+
 	// Reply for good
 	socket.write( transformWrite.apply( null, [ 'REPLY', 'HI', socket.id ] ) );
 
 	// Update slaves list
 	this.emit( 'update-slaves-list', this.slaves );
+};
+
+Master.prototype.toArraySlaves = function() {
+	let slaves = [];
+	// level 2 of looping obj
+	for( let key in this.slaves ) {
+		if ( this.slaves.hasOwnProperty( key ) ) {
+			for( let slaveId in this.slaves[ key ] ) {
+				slaves.push ( this.slaves[ key ] [ slaveId ] );
+			}
+		}
+	}
+
+	return slaves;
 };
 
 // This would be hosed to socket IO
@@ -135,4 +170,4 @@ Master.prototype.exec = function ( targetMachine, commandObject, cb ) {
 	machine.queue.push( cb );
 };
 
-module.exports = Master;
+module.exports = new Master ();

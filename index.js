@@ -68,7 +68,7 @@ const staticFiles = server.select( 'static' );
 rest.route( require( './routes' )( master ) );
 
 const io      = SocketIO.listen( ws.listener );
-const logPath = process.cwd() + '/testlogs';
+const logPath = process.cwd() + '/test/data/testlogs';
 
 function getMachines ( slaves ) {
 	let machines = [];
@@ -87,16 +87,7 @@ function getMachines ( slaves ) {
 	return machines;
 }
 
-function createWriteStream( session, machineId ) {
-	let writeStream = fs.createWriteStream( logPath + '/' + session + '.log', { 'flags' : 'w' } );
-	writeStream.on( 'error', function ( error ) {
-		// error
-	} );
-	return writeStream;
-}
-
 function slaveStream( socket, data ) {
-	socket.writeStream.write( data.data[ 0 ] );
 	_.forEach( io.sockets.connected, ( socketEach, socketId ) => {
 		socketEach.emit( 'browserstack-data-stream', {
 			'machineId' : socket.name,
@@ -129,7 +120,6 @@ io.sockets.on( 'connection', ( socket ) => {
 	} );
 
 	socket.on( 'end-socket', ( data ) => {
-		socket.writeStream.end();
 		_.forEach( io.sockets.connected, ( socketend, socketId ) => {
 			socketend.emit( 'testcase-end', data );
 		} );
@@ -142,11 +132,18 @@ io.sockets.on( 'connection', ( socket ) => {
 		socket.session   = browserstack.automation_session.session;
 
 		// create write stream
-		socket.writeStream = createWriteStream( socket.session );
+		socket.writeStream = fs.createWriteStream( logPath + '/' + socket.session + '.log' );
+		socket.writeStream.on( 'error', function ( error ) {
+			console.log( error );
+		} );
 	} );
 	// Check what happened here
 	socket.on( 'browserstack-stream', ( data ) => {
 		slaveStream( socket, data );
+	} );
+
+	socket.on( 'local-logs-stream', ( data ) => {
+		socket.writeStream.write( data.data.toString() );
 	} );
 
 } );
